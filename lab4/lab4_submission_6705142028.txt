@@ -1,0 +1,255 @@
+# ========================================
+192-442 Server Operating System
+LAB 4: Web Server with Apache2
+
+GROUP (Dune)
+
+| No. | Name | Student ID |
+| --- | --- | --- |
+| 1 | Thet Htoo Aung | 6705142042 |
+| 2 | Swam Pyae Paing | 6705142028 |
+| 3 | Soe Moe Hein | 6705142013 |
+| 4 | Minn Khant Si Thu | 6705142014 |
+
+Date: 03/10/2026
+
+# ========================================
+TASK 1: HTTP TRAFFIC AND ACCESS LOGS
+# ========================================
+
+1a. Status Code Count
+
++--------+-------+
+| Status | Count |
++--------+-------+
+| 200    | 17    |
+| 404    | 4     |
++--------+-------+
+
+Command used:
+awk '{print $9}' /var/log/apache2/access.log | sort | uniq -c | sort -rn
+
+Explanation:
+
+The 200 status code indicates successful requests, while 404 means
+the requested resource was not found.
+
+Site1 and Site2 requests are not included in the main access.log
+because each virtual host uses its own CustomLog file.
+
+1c. Browser vs curl
+
+Curl User-Agent: curl/8.5.0
+
+Curl evidence:
+
+::1 - - [03/Oct/2026:10:24:20 +0000] "GET / HTTP/1.1" 200 986 "-" "curl/8.5.0"
+::1 - - [03/Oct/2026:10:24:20 +0000] "GET /about.html HTTP/1.1" 200 649 "-" "curl/8.5.0"
+::1 - - [03/Oct/2026:10:24:20 +0000] "GET /missing-page.html HTTP/1.1" 404 436 "-" "curl/8.5.0"
+
+Browser User-Agent: Mozilla/5.0
+
+Browser evidence:
+
+10.244.6.172 - - [03/Oct/2026:10:42:31 +0000] "GET / HTTP/1.1" 200 770 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 >
+10.244.6.172 - - [03/Oct/2026:10:42:32 +0000] "GET /favicon.ico HTTP/1.1" 404 436 "https://d802555780f3adfa-1-80.papa.r.killercoda.com/" >
+10.244.3.28 - - [03/Oct/2026:10:43:06 +0000] "GET / HTTP/1.1" 200 770 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (>
+
+Comparison:
+
+curl identifies itself as curl/8.5.0, while the browser identifies
+itself with a Mozilla/5.0 User-Agent string.
+
+# ========================================
+TASK 2: HTTP METHODS
+# ========================================
+
+Predictions before running the commands:
+
+GET:
+I predict 200 OK because the index page exists.
+
+POST:
+I predict a version-dependent response because the target is a
+static HTML file and no server-side code processes the POST data.
+
+PUT:
+I predict 405 Method Not Allowed because the resource exists but
+PUT is not allowed.
+
+DELETE:
+I predict 405 Method Not Allowed because the resource exists but
+DELETE is not allowed.
+
+--- TASK 2 ---
+
+HTTP/1.1 200 OK
+HTTP/1.1 200 OK
+HTTP/1.1 405 Method Not Allowed
+HTTP/1.1 405 Method Not Allowed
+
+Observed Results:
+
+GET: 200 OK
+POST: 200 OK
+PUT: 405 Method Not Allowed
+DELETE: 405 Method Not Allowed
+
+Explanation:
+
+404 Not Found means the requested resource does not exist.
+405 Method Not Allowed means the resource exists, but the requested
+HTTP method is not allowed.
+
+Allow:
+GET,POST,OPTIONS,HEAD
+
+# ========================================
+TASK 3: GET VS POST
+# ========================================
+
+--- TASK 3 ---
+
+GET output:
+
+Method received: GET
+Query string: course=192-442&week=4
+
+POST output:
+
+Method received: POST
+Query string:
+POST body: name=student&id=123
+
+Log evidence:
+
+::1 - - [03/Oct/2026:12:33:50 +0000] "GET /cgi-bin/echo.sh?course=192-442&week=4 HTTP/1.1" 200 270 "-" "curl/8.5.0"
+::1 - - [03/Oct/2026:12:33:50 +0000] "POST /cgi-bin/echo.sh HTTP/1.1" 200 281 "-" "curl/8.5.0"
+
+Explanation:
+
+GET carries data in the URL query string, so the data is visible in
+the URL and is recorded in the access log.
+
+POST carries data in the request body, so the data is not shown in
+the URL or in the normal Apache access-log request line.
+
+This matters because GET data can be visible in the URL, browser
+history, bookmarks, and access logs.
+
+Security Question:
+
+If a password were sent using GET, two places where it could appear
+are browser history and Apache access logs.
+
+
+# ========================================
+TASK 4: DIAGNOSIS
+# ========================================
+
+--- SCENARIO A ---
+
+Prediction:
+I predict HTTP 403 Forbidden because the file exists but Apache
+does not have permission to read it.
+
+Observed:
+HTTP 403 Forbidden
+
+Evidence from error.log:
+[Sat Oct 03 12:49:25.401573 2026] [core:error] [pid 3172:tid 127491899999936] (13)Permission denied: [client ::1:43232] AH00132: file permissions deny server access: /var/www/html/about.html
+[Sat Oct 03 12:49:34.511994 2026] [core:error] [pid 3173:tid 127491809212096] (13)Permission denied: [client ::1:53524] AH00132: file permissions deny server access: /var/www/html/about.html
+
+Diagnosis:
+The file exists, but its permissions prevent Apache from accessing it.
+
+Restore:
+chmod 644 /var/www/html/about.html
+
+
+--- SCENARIO B ---
+
+Prediction:
+I predict HTTP 403 Forbidden because the directory has no index
+file and directory listing is disabled.
+
+Observed:
+HTTP 403 Forbidden
+
+Evidence from site1-error.log:
+[Sat Oct 03 12:54:09.793435 2026] [autoindex:error] [pid 3172:tid 127491809212096] [client ::1:59244] AH01276: Cannot serve directory /var/www/site1/public_html/: No matching DirectoryIndex (index.html,index.cgi,index.pl,index.php,index.xhtml,index.htm) found, and server-generated directory index forbidden by Options directive
+
+Diagnosis:
+The index.html file was removed, and directory listing is disabled,
+so Apache cannot serve the directory.
+
+Restore:
+mv /tmp/index.html /var/www/site1/public_html/
+
+
+
+--- SCENARIO C ---
+
+Prediction:
+I predict HTTP 200, but the default site's content will be returned
+because site1.conf is disabled.
+
+Observed:
+HTTP 200 OK
+
+Evidence:
+<title>192-442 Lab Server</title>
+
+Diagnosis:
+Site1 is disabled, so Apache falls back to the default virtual host
+and serves the default site's content instead.
+
+Restore:
+a2ensite site1.conf && systemctl reload apache2
+
+
+--- SCENARIO D ---
+
+Prediction:
+I predict that there will be no HTTP status because Apache is stopped
+and the connection will be refused.
+
+Observed:
+No HTTP status code; curl exit status: 7
+
+Evidence:
+000 http://localhost/
+curl exit status: 7
+
+Diagnosis:
+Apache was stopped, so there was no web server listening on the HTTP
+port and the connection failed.
+
+Restore:
+systemctl start apache2
+
+
+--- SCENARIO E ---
+
+Prediction:
+I predict the configuration test will fail because the directive
+name is misspelled.
+
+Observed:
+Configuration test failed, but the existing Apache server continued
+to serve the page.
+
+Evidence:
+AH00526: Syntax error on line 237 of /etc/apache2/apache2.conf:
+Invalid command 'ServerNaem', perhaps misspelled or defined by a module not included in the server configuration
+
+200 http://localhost/
+
+
+Diagnosis:
+The misspelled ServerNaem directive caused the configuration test
+and reload to fail, while the old working configuration remained active.
+
+Restore:
+cp /root/apache2.conf.backup /etc/apache2/apache2.conf
+apache2ctl configtest && systemctl reload apache2
